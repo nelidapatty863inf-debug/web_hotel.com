@@ -1,0 +1,112 @@
+# =====================================================
+# HTACCESS PARA SISTEMA DE RESERVAS DE HOTEL
+# =====================================================
+
+# Activar Rewrite Engine
+RewriteEngine On
+
+# Redirigir www a no-www
+RewriteCond %{HTTP_HOST} ^www\.(.*)$ [NC]
+RewriteRule ^(.*)$ http://%1/$1 [R=301,L]
+
+# Redirigir HTTP a HTTPS (descomentar si tienes SSL)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+# =====================================================
+# URL AMIGABLES
+# =====================================================
+
+# Habitaciones
+RewriteRule ^habitacion/([0-9]+)/(.*)$ room_details.php?id=$1 [L,QSA]
+RewriteRule ^habitaciones$ index.php#rooms [L]
+
+# Reservas
+RewriteRule ^reservar/([0-9]+)$ room_details.php?id=$1 [L]
+RewriteRule ^carrito$ cart.php [L]
+RewriteRule ^checkout$ checkout.php [L]
+RewriteRule ^confirmacion/([0-9]+)$ confirmation.php?id=$1 [L]
+RewriteRule ^mis-reservas$ my_bookings.php [L]
+
+# Páginas
+RewriteRule ^inicio$ index.php [L]
+RewriteRule ^registro$ register.php [L]
+RewriteRule ^login$ admin/login.php [L]
+
+# Admin
+RewriteRule ^admin$ admin/dashboard.php [L]
+RewriteRule ^admin/panel$ admin/dashboard.php [L]
+RewriteRule ^admin/habitaciones$ admin/rooms.php [L]
+RewriteRule ^admin/reservas$ admin/reservations.php [L]
+RewriteRule ^admin/usuarios$ admin/users.php [L]
+
+# =====================================================
+# SEGURIDAD
+# =====================================================
+
+# Proteger archivos sensibles
+<FilesMatch "^(config|auth|functions)\.php$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+# Proteger carpeta includes
+<IfModule mod_rewrite.c>
+    RewriteRule ^includes/ - [F,L]
+</IfModule>
+
+# Proteger carpeta de logs
+<IfModule mod_rewrite.c>
+    RewriteRule ^logs/ - [F,L]
+</IfModule>
+
+# Deshabilitar listado de directorios
+Options -Indexes
+
+# Proteger contra SQL injection (básico)
+<IfModule mod_rewrite.c>
+    RewriteCond %{QUERY_STRING} [^a-z](select|union|insert|delete|update|drop|create|alter) [NC]
+    RewriteRule .* - [F,L]
+</IfModule>
+
+# =====================================================
+# COMPRESIÓN GZIP
+# =====================================================
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
+
+# =====================================================
+# CACHÉ DE NAVEGADOR
+# =====================================================
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpg "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType text/javascript "access plus 1 month"
+</IfModule>
+
+# =====================================================
+# ERRORES PERSONALIZADOS
+# =====================================================
+ErrorDocument 400 /error.php?code=400
+ErrorDocument 401 /error.php?code=401
+ErrorDocument 403 /error.php?code=403
+ErrorDocument 404 /error.php?code=404
+ErrorDocument 500 /error.php?code=500
+
+# =====================================================
+# LÍMITES DE SUBIDA
+# =====================================================
+php_value upload_max_filesize 10M
+php_value post_max_size 10M
+php_value max_execution_time 300
+
+# =====================================================
+# ZONA HORARIA (ajustar según ubicación)
+# =====================================================
+php_value date.timezone America/Mexico_City

@@ -1,0 +1,1331 @@
+/**
+ * SCRIPT PRINCIPAL DEL SITIO WEB DEL HOTEL
+ * Funcionalidades: búsqueda, carrito, validaciones, etc.
+ */
+
+document.addEventListener('DOMContentLoaded', function() {
+    
+    // =====================================================
+    // VALIDACIÓN DE FECHAS EN EL BUSCADOR
+    // =====================================================
+    const checkInInput = document.getElementById('check_in');
+    const checkOutInput = document.getElementById('check_out');
+    
+    if (checkInInput && checkOutInput) {
+        // Establecer fecha mínima para check-in (hoy)
+        const today = new Date().toISOString().split('T')[0];
+        checkInInput.min = today;
+        
+        // Actualizar fecha mínima de check-out cuando cambia check-in
+        checkInInput.addEventListener('change', function() {
+            checkOutInput.min = this.value;
+            if (checkOutInput.value && checkOutInput.value <= this.value) {
+                checkOutInput.value = '';
+            }
+        });
+        
+        // Validar que check-out sea posterior a check-in
+        checkOutInput.addEventListener('change', function() {
+            if (checkInInput.value && this.value <= checkInInput.value) {
+                alert('La fecha de salida debe ser posterior a la fecha de entrada');
+                this.value = '';
+            }
+        });
+    }
+    
+    // =====================================================
+    // CÁLCULO DE NOCHES Y TOTALES
+    // =====================================================
+    function calculateNights(checkIn, checkOut) {
+        if (checkIn && checkOut) {
+            const start = new Date(checkIn);
+            const end = new Date(checkOut);
+            const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+            return nights > 0 ? nights : 0;
+        }
+        return 0;
+    }
+    
+    function calculateTotal(pricePerNight, nights) {
+        return pricePerNight * nights;
+    }
+    
+    // =====================================================
+    // MANEJO DEL CARRITO
+    // =====================================================
+    window.addToCart = function(roomId, roomName, price, checkIn, checkOut) {
+        const nights = calculateNights(checkIn, checkOut);
+        const total = calculateTotal(price, nights);
+        
+        fetch('api/add_to_cart.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `room_id=${roomId}&room_name=${encodeURIComponent(roomName)}&price_per_night=${price}&nights=${nights}&check_in=${checkIn}&check_out=${checkOut}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Habitación agregada al carrito', 'success');
+                updateCartCount();
+            } else {
+                showNotification(data.message || 'Error al agregar', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('Error de conexión', 'error');
+        });
+    };
+    
+    window.removeFromCart = function(itemId) {
+        if (confirm('¿Deseas eliminar este producto del carrito?')) {
+            fetch('api/remove_item.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `id=${itemId}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    showNotification('Error al eliminar', 'error');
+                }
+            });
+        }
+    };
+    
+    // =====================================================
+    // ACTUALIZAR CONTADOR DEL CARRITO
+    // =====================================================
+    function updateCartCount() {
+        fetch('api/get_cart_count.php')
+            .then(response => response.json())
+            .then(data => {
+                const cartBadge = document.getElementById('cart-count');
+                if (cartBadge) {
+                    cartBadge.textContent = data.count || 0;
+                    cartBadge.style.display = data.count > 0 ? 'inline-block' : 'none';
+                }
+            });
+    }
+    
+    // =====================================================
+    // NOTIFICACIONES
+    // =====================================================
+    function showNotification(message, type = 'info') {
+        // Crear elemento de notificación
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        `;
+        
+        // Colores según tipo
+        switch(type) {
+            case 'success':
+                notification.style.backgroundColor = '#2ecc71';
+                break;
+            case 'error':
+                notification.style.backgroundColor = '#e74c3c';
+                break;
+            case 'warning':
+                notification.style.backgroundColor = '#f39c12';
+                break;
+            default:
+                notification.style.backgroundColor = '#3498db';
+        }
+        
+        document.body.appendChild(notification);
+        
+        // Auto-eliminar después de 3 segundos
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    }
+    
+    // =====================================================
+    // FILTRADO DE HABITACIONES
+    // =====================================================
+    const searchForm = document.getElementById('searchForm');
+    if (searchForm) {
+        searchForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const checkIn = document.getElementById('check_in').value;
+            const checkOut = document.getElementById('check_out').value;
+            const adults = document.getElementById('adults').value;
+            const children = document.getElementById('children').value;
+            
+            // Validar fechas
+            if (!checkIn || !checkOut) {
+                showNotification('Selecciona las fechas de estancia', 'warning');
+                return;
+            }
+            
+            if (new Date(checkOut) <= new Date(checkIn)) {
+                showNotification('La fecha de salida debe ser posterior a la de entrada', 'warning');
+                return;
+            }
+            
+            // Redirigir con parámetros
+            const params = new URLSearchParams({
+                check_in: checkIn,
+                check_out: checkOut,
+                adults: adults,
+                children: children
+            });
+            window.location.href = 'index.php?' + params.toString();
+        });
+    }
+    
+    // =====================================================
+    // VALIDACIÓN DE FORMULARIOS
+    // =====================================================
+    const forms = document.querySelectorAll('form[data-validate]');
+    forms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const requiredFields = form.querySelectorAll('[required]');
+            let isValid = true;
+            
+            requiredFields.forEach(field => {
+                if (!field.value.trim()) {
+                    field.style.borderColor = '#e74c3c';
+                    isValid = false;
+                } else {
+                    field.style.borderColor = '#ddd';
+                }
+            });
+            
+            if (!isValid) {
+                e.preventDefault();
+                showNotification('Por favor completa todos los campos requeridos', 'error');
+            }
+        });
+    });
+    
+    // =====================================================
+    // ANIMACIONES CSS
+    // =====================================================
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    // =====================================================
+    // SCROLL SUAVE PARA ANCLAJES
+    // =====================================================
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function(e) {
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+                e.preventDefault();
+                target.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            }
+        });
+    });
+    
+    // =====================================================
+    // TOOLTIPS PARA BOTONES
+    // =====================================================
+    const tooltipElements = document.querySelectorAll('[data-tooltip]');
+    tooltipElements.forEach(el => {
+        el.addEventListener('mouseenter', function(e) {
+            const tooltip = document.createElement('div');
+            tooltip.className = 'tooltip';
+            tooltip.textContent = this.dataset.tooltip;
+            tooltip.style.cssText = `
+                position: absolute;
+                background: #2c3e50;
+                color: white;
+                padding: 5px 10px;
+                border-radius: 5px;
+                font-size: 12px;
+                white-space: nowrap;
+                z-index: 1000;
+                pointer-events: none;
+            `;
+            document.body.appendChild(tooltip);
+            
+            const rect = this.getBoundingClientRect();
+            tooltip.style.top = rect.top - tooltip.offsetHeight - 5 + 'px';
+            tooltip.style.left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2) + 'px';
+            
+            this.addEventListener('mouseleave', () => tooltip.remove(), { once: true });
+        });
+    });
+});
+
+// =====================================================
+// FUNCIÓN PARA PROTECCIÓN DE VIAJE
+// =====================================================
+function toggleTravelProtection(checkbox) {
+    fetch('api/update_travel_protection.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `enabled=${checkbox.checked}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    });
+}
+
+// =====================================================
+// FUNCIÓN PARA APLICAR CUPÓN
+// =====================================================
+function applyCoupon() {
+    const couponCode = document.getElementById('coupon_code').value;
+    if (!couponCode) {
+        showNotification('Ingresa un código de cupón', 'warning');
+        return;
+    }
+    
+    fetch('api/apply_coupon.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `coupon=${encodeURIComponent(couponCode)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Cupón aplicado correctamente', 'success');
+            location.reload();
+        } else {
+            showNotification(data.message || 'Cupón inválido', 'error');
+        }
+    });
+}
+/**
+ * SCRIPT PARA EL PANEL DE ADMINISTRACIÓN
+ * Funcionalidades: gráficas, tablas dinámicas, filtros, etc.
+ */
+
+document.addEventListener('DOMContentLoaded', function() {
+    
+    // =====================================================
+    // CONFIRMAR ELIMINACIÓN
+    // =====================================================
+    window.confirmDelete = function(url, message) {
+        if (confirm(message || '¿Estás seguro de eliminar este registro? Esta acción no se puede deshacer.')) {
+            window.location.href = url;
+        }
+    };
+    
+    // =====================================================
+    // FILTRADO DE TABLAS
+    // =====================================================
+    function initTableFilter() {
+        const searchInput = document.getElementById('tableSearch');
+        if (searchInput) {
+            searchInput.addEventListener('keyup', function() {
+                const filter = this.value.toLowerCase();
+                const table = document.querySelector('.data-table');
+                if (!table) return;
+                
+                const rows = table.querySelectorAll('tbody tr');
+                rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    row.style.display = text.includes(filter) ? '' : 'none';
+                });
+            });
+        }
+    }
+    initTableFilter();
+    
+    // =====================================================
+    // DASHBOARD - GRÁFICAS
+    // =====================================================
+    if (document.getElementById('revenueChart')) {
+        // Cargar datos para gráficas
+        fetch('dashboard_data.php')
+            .then(response => response.json())
+            .then(data => {
+                createRevenueChart(data);
+                createOccupancyChart(data);
+            });
+    }
+    
+    function createRevenueChart(data) {
+        // Aquí puedes integrar Chart.js si lo deseas
+        console.log('Revenue data:', data);
+    }
+    
+    function createOccupancyChart(data) {
+        console.log('Occupancy data:', data);
+    }
+    
+    // =====================================================
+    // CALENDARIO DE DISPONIBILIDAD
+    // =====================================================
+    function initAvailabilityCalendar() {
+        const prevBtn = document.getElementById('prevMonth');
+        const nextBtn = document.getElementById('nextMonth');
+        let currentDate = new Date();
+        
+        function loadCalendar(year, month) {
+            fetch(`availability_data.php?year=${year}&month=${month}`)
+                .then(response => response.json())
+                .then(data => {
+                    renderCalendar(data);
+                });
+        }
+        
+        function renderCalendar(data) {
+            const container = document.getElementById('calendarContainer');
+            if (!container) return;
+            
+            let html = '<div class="calendar-grid">';
+            html += '<div class="calendar-header">';
+            html += '<div>Habitación</div>';
+            
+            // Días del mes
+            for (let i = 1; i <= data.daysInMonth; i++) {
+                html += `<div>${i}</div>`;
+            }
+            html += '</div>';
+            
+            // Filas por habitación
+            data.rooms.forEach(room => {
+                html += '<div class="calendar-row">';
+                html += `<div class="room-name-cell">${room.name}</div>`;
+                
+                for (let i = 1; i <= data.daysInMonth; i++) {
+                    const dateKey = `${data.year}-${String(data.month).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+                    const availability = room.availability[dateKey];
+                    let cellClass = 'available-cell';
+                    let cellText = availability || '0';
+                    
+                    if (availability === 0) cellClass = 'unavailable-cell';
+                    if (room.blockedDates && room.blockedDates.includes(dateKey)) cellClass = 'blocked-cell';
+                    
+                    html += `<div class="${cellClass}" data-date="${dateKey}" data-room="${room.id}">
+                                ${cellText}
+                             </div>`;
+                }
+                html += '</div>';
+            });
+            html += '</div>';
+            
+            container.innerHTML = html;
+            
+            // Agregar evento de clic para editar disponibilidad
+            document.querySelectorAll('.calendar-row [data-date]').forEach(cell => {
+                cell.addEventListener('click', function(e) {
+                    const roomId = this.dataset.room;
+                    const date = this.dataset.date;
+                    const currentValue = this.textContent;
+                    
+                    const newValue = prompt('Disponibilidad (número de habitaciones):', currentValue);
+                    if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
+                        updateAvailability(roomId, date, newValue);
+                    }
+                });
+            });
+        }
+        
+        function updateAvailability(roomId, date, units) {
+            fetch('availability_update.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `room_id=${roomId}&date=${date}&units=${units}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Error al actualizar disponibilidad');
+                }
+            });
+        }
+        
+        if (prevBtn && nextBtn && currentDate) {
+            prevBtn.addEventListener('click', () => {
+                currentDate.setMonth(currentDate.getMonth() - 1);
+                loadCalendar(currentDate.getFullYear(), currentDate.getMonth() + 1);
+            });
+            
+            nextBtn.addEventListener('click', () => {
+                currentDate.setMonth(currentDate.getMonth() + 1);
+                loadCalendar(currentDate.getFullYear(), currentDate.getMonth() + 1);
+            });
+            
+            loadCalendar(currentDate.getFullYear(), currentDate.getMonth() + 1);
+        }
+    }
+    initAvailabilityCalendar();
+    
+    // =====================================================
+    // EXPORTAR DATOS
+    // =====================================================
+    window.exportData = function(type, format = 'csv') {
+        const url = `export_data.php?type=${type}&format=${format}`;
+        window.open(url, '_blank');
+    };
+    
+    // =====================================================
+    // CAMBIO DE ESTADO DE RESERVA
+    // =====================================================
+    window.updateReservationStatus = function(reservationId, status) {
+        fetch('reservation_update.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `id=${reservationId}&status=${status}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error al actualizar el estado');
+            }
+        });
+    };
+    
+    // =====================================================
+    // VISTA PREVIA DE IMAGEN
+    // =====================================================
+    const imageInput = document.getElementById('roomImage');
+    if (imageInput) {
+        imageInput.addEventListener('change', function(e) {
+            const preview = document.getElementById('imagePreview');
+            if (preview && this.files && this.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(this.files[0]);
+            }
+        });
+    }
+    
+    // =====================================================
+    // VALIDACIÓN DE FORMULARIOS DEL ADMIN
+    // =====================================================
+    const adminForms = document.querySelectorAll('.admin-form');
+    adminForms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const priceInput = form.querySelector('input[name="price_per_night"], input[name="total_amount"]');
+            if (priceInput && priceInput.value && isNaN(parseFloat(priceInput.value))) {
+                e.preventDefault();
+                alert('El precio debe ser un número válido');
+                priceInput.focus();
+            }
+            
+            const emailInput = form.querySelector('input[type="email"]');
+            if (emailInput && emailInput.value && !isValidEmail(emailInput.value)) {
+                e.preventDefault();
+                alert('Ingresa un correo electrónico válido');
+                emailInput.focus();
+            }
+        });
+    });
+    
+    function isValidEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+    
+    // =====================================================
+    // TOOLTIP PARA ADMIN
+    // =====================================================
+    const adminTooltips = document.querySelectorAll('[data-tooltip]');
+    adminTooltips.forEach(el => {
+        el.addEventListener('mouseenter', function(e) {
+            const tooltip = document.createElement('div');
+            tooltip.className = 'admin-tooltip';
+            tooltip.textContent = this.dataset.tooltip;
+            tooltip.style.cssText = `
+                position: absolute;
+                background: #2c3e50;
+                color: white;
+                padding: 5px 10px;
+                border-radius: 5px;
+                font-size: 12px;
+                z-index: 1000;
+            `;
+            document.body.appendChild(tooltip);
+            
+            const rect = this.getBoundingClientRect();
+            tooltip.style.top = rect.top - tooltip.offsetHeight - 5 + 'px';
+            tooltip.style.left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2) + 'px';
+            
+            this.addEventListener('mouseleave', () => tooltip.remove(), { once: true });
+        });
+    });
+});
+
+// =====================================================
+// FUNCIONES GLOBALES PARA EL ADMIN
+// =====================================================
+
+// Mostrar/ocultar sidebar en móvil
+function toggleSidebar() {
+    const sidebar = document.querySelector('.admin-sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('collapsed');
+    }
+}
+
+// Recargar datos del dashboard
+function refreshDashboard() {
+    location.reload();
+}
+
+// Imprimir reporte
+function printReport() {
+    window.print();
+}
+/**
+ * MEJORAS VISUALES Y FUNCIONALES
+ */
+
+document.addEventListener('DOMContentLoaded', function() {
+    
+    // =====================================================
+    // 1. PRELOADER
+    // =====================================================
+    const preloader = document.createElement('div');
+    preloader.className = 'preloader';
+    preloader.innerHTML = '<div class="spinner"></div>';
+    document.body.appendChild(preloader);
+    
+    window.addEventListener('load', function() {
+        setTimeout(() => {
+            preloader.classList.add('hide');
+            setTimeout(() => preloader.remove(), 500);
+        }, 500);
+    });
+    
+    // =====================================================
+    // 2. PROGRESS BAR
+    // =====================================================
+    const progressBar = document.createElement('div');
+    progressBar.className = 'progress-bar';
+    document.body.appendChild(progressBar);
+    
+    window.addEventListener('scroll', () => {
+        const scrollTop = window.pageYOffset;
+        const height = document.documentElement.scrollHeight - window.innerHeight;
+        const width = (scrollTop / height) * 100;
+        progressBar.style.width = width + '%';
+    });
+    
+    // =====================================================
+    // 3. CARRITO FLOTANTE
+    // =====================================================
+    function addFloatingCart() {
+        fetch('api/get_cart_count.php')
+            .then(response => response.json())
+            .then(data => {
+                if (data.count > 0) {
+                    let floatingCart = document.querySelector('.cart-floating');
+                    if (!floatingCart) {
+                        floatingCart = document.createElement('a');
+                        floatingCart.className = 'cart-floating';
+                        floatingCart.href = 'cart.php';
+                        floatingCart.innerHTML = `
+                            <i class="fas fa-shopping-cart"></i>
+                            <span class="cart-count">${data.count}</span>
+                        `;
+                        document.body.appendChild(floatingCart);
+                    } else {
+                        const countSpan = floatingCart.querySelector('.cart-count');
+                        if (countSpan) countSpan.textContent = data.count;
+                    }
+                }
+            });
+    }
+    addFloatingCart();
+    
+    // =====================================================
+    // 4. DARK MODE
+    // =====================================================
+    const darkModeToggle = document.createElement('div');
+    darkModeToggle.className = 'dark-mode-toggle';
+    darkModeToggle.innerHTML = '<i class="fas fa-moon"></i>';
+    document.body.appendChild(darkModeToggle);
+    
+    const darkMode = localStorage.getItem('darkMode') === 'true';
+    if (darkMode) {
+        document.body.classList.add('dark-mode');
+        darkModeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+    }
+    
+    darkModeToggle.addEventListener('click', () => {
+        document.body.classList.toggle('dark-mode');
+        const isDark = document.body.classList.contains('dark-mode');
+        localStorage.setItem('darkMode', isDark);
+        darkModeToggle.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+    });
+    
+    // =====================================================
+    // 5. SCROLL ANIMATIONS
+    // =====================================================
+    const animatedElements = document.querySelectorAll('.room-card, .amenity, .testimonial-card');
+    animatedElements.forEach(el => el.classList.add('scroll-animate'));
+    
+    function checkScroll() {
+        const elements = document.querySelectorAll('.scroll-animate');
+        const windowHeight = window.innerHeight;
+        
+        elements.forEach(el => {
+            const rect = el.getBoundingClientRect();
+            if (rect.top < windowHeight - 100) {
+                el.classList.add('visible');
+            }
+        });
+    }
+    
+    window.addEventListener('scroll', checkScroll);
+    checkScroll();
+    
+    // =====================================================
+    // 6. TOAST NOTIFICATIONS
+    // =====================================================
+    window.showToast = function(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast-notification ${type}`;
+        toast.innerHTML = `
+            <i class="fas ${type === 'success' ? 'fa-check-circle' : (type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle')}"></i>
+            ${message}
+        `;
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'slideInRight 0.3s reverse';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    };
+    
+    // =====================================================
+    // 7. MODAL SYSTEM
+    // =====================================================
+    window.showModal = function(title, content) {
+        let modal = document.querySelector('.modal');
+        
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3></h3>
+                        <span class="modal-close">&times;</span>
+                    </div>
+                    <div class="modal-body"></div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            modal.querySelector('.modal-close').addEventListener('click', () => {
+                modal.classList.remove('active');
+            });
+            
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.classList.remove('active');
+            });
+        }
+        
+        modal.querySelector('.modal-header h3').textContent = title;
+        modal.querySelector('.modal-body').innerHTML = content;
+        modal.classList.add('active');
+    };
+    
+    // =====================================================
+    // 8. GALERÍA DE IMÁGENES EN DETALLE DE HABITACIÓN
+    // =====================================================
+    function initRoomGallery() {
+        const galleryContainer = document.querySelector('.room-gallery');
+        if (!galleryContainer) return;
+        
+        const images = [
+            'https://placehold.co/600x400/3498db/white?text=Habitacion+1',
+            'https://placehold.co/600x400/2ecc71/white?text=Habitacion+2',
+            'https://placehold.co/600x400/e74c3c/white?text=Habitacion+3',
+            'https://placehold.co/600x400/f39c12/white?text=Habitacion+4'
+        ];
+        
+        images.forEach((src, index) => {
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = `Imagen ${index + 1}`;
+            const div = document.createElement('div');
+            div.className = 'gallery-item';
+            div.appendChild(img);
+            div.addEventListener('click', () => {
+                showModal('Galería', `<img src="${src}" style="width:100%; border-radius:8px;">`);
+            });
+            galleryContainer.appendChild(div);
+        });
+    }
+    initRoomGallery();
+    
+    // =====================================================
+    // 9. LAZY LOADING DE IMÁGENES
+    // =====================================================
+    const images = document.querySelectorAll('img');
+    const imageObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                const src = img.dataset.src;
+                if (src) {
+                    img.src = src;
+                }
+                observer.unobserve(img);
+            }
+        });
+    });
+    
+    images.forEach(img => {
+        if (!img.src || img.src === '') {
+            const originalSrc = img.getAttribute('src');
+            if (originalSrc) {
+                img.dataset.src = originalSrc;
+                img.src = '';
+                imageObserver.observe(img);
+            }
+        }
+    });
+    
+    // =====================================================
+    // 10. FILTRO DE HABITACIONES EN TIEMPO REAL
+    // =====================================================
+    function initRoomFilter() {
+        const filterInput = document.createElement('input');
+        filterInput.type = 'text';
+        filterInput.placeholder = '🔍 Buscar habitación...';
+        filterInput.className = 'room-filter';
+        filterInput.style.cssText = `
+            width: 100%;
+            padding: 10px;
+            margin: 1rem 0;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+        `;
+        
+        const roomsSection = document.querySelector('.rooms-section');
+        if (roomsSection) {
+            const container = roomsSection.querySelector('.container');
+            if (container && !container.querySelector('.room-filter')) {
+                container.insertBefore(filterInput, container.querySelector('.rooms-grid'));
+                
+                filterInput.addEventListener('input', function() {
+                    const searchTerm = this.value.toLowerCase();
+                    const roomCards = document.querySelectorAll('.room-card');
+                    
+                    roomCards.forEach(card => {
+                        const title = card.querySelector('h3')?.textContent.toLowerCase() || '';
+                        const description = card.querySelector('p')?.textContent.toLowerCase() || '';
+                        
+                        if (title.includes(searchTerm) || description.includes(searchTerm)) {
+                            card.style.display = '';
+                        } else {
+                            card.style.display = 'none';
+                        }
+                    });
+                });
+            }
+        }
+    }
+    initRoomFilter();
+});
+
+/**
+ * MEJORAS VISUALES Y FUNCIONALIDADES
+ */
+
+document.addEventListener('DOMContentLoaded', function() {
+    
+    // =====================================================
+    // SCROLL REVEAL - ANIMACIONES AL HACER SCROLL
+    // =====================================================
+    const revealElements = document.querySelectorAll('.room-card, .amenity, .testimonial-card');
+    revealElements.forEach(el => el.classList.add('scroll-reveal'));
+    
+    function checkScrollReveal() {
+        const windowHeight = window.innerHeight;
+        revealElements.forEach(el => {
+            const rect = el.getBoundingClientRect();
+            if (rect.top < windowHeight - 100) {
+                el.classList.add('visible');
+            }
+        });
+    }
+    
+    window.addEventListener('scroll', checkScrollReveal);
+    checkScrollReveal();
+    
+    // =====================================================
+    // CARRITO FLOTANTE
+    // =====================================================
+    function addFloatingCart() {
+        fetch('api/get_cart_count.php')
+            .then(response => response.json())
+            .then(data => {
+                if (data.count > 0) {
+                    let floatingCart = document.querySelector('.cart-floating');
+                    if (!floatingCart) {
+                        floatingCart = document.createElement('a');
+                        floatingCart.className = 'cart-floating';
+                        floatingCart.href = 'cart.php';
+                        floatingCart.innerHTML = `
+                            <i class="fas fa-shopping-cart"></i>
+                            <span class="cart-count">${data.count}</span>
+                        `;
+                        document.body.appendChild(floatingCart);
+                        
+                        // Estilos del carrito flotante
+                        floatingCart.style.cssText = `
+                            position: fixed;
+                            bottom: 20px;
+                            right: 20px;
+                            background: #e74c3c;
+                            color: white;
+                            width: 60px;
+                            height: 60px;
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 1.5rem;
+                            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+                            z-index: 1000;
+                            transition: all 0.3s ease;
+                            text-decoration: none;
+                        `;
+                        
+                        const countSpan = floatingCart.querySelector('.cart-count');
+                        if (countSpan) {
+                            countSpan.style.cssText = `
+                                position: absolute;
+                                top: -5px;
+                                right: -5px;
+                                background: #2ecc71;
+                                color: white;
+                                border-radius: 50%;
+                                width: 25px;
+                                height: 25px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-size: 0.7rem;
+                                font-weight: bold;
+                            `;
+                        }
+                        
+                        floatingCart.addEventListener('mouseenter', () => {
+                            floatingCart.style.transform = 'scale(1.1)';
+                        });
+                        floatingCart.addEventListener('mouseleave', () => {
+                            floatingCart.style.transform = 'scale(1)';
+                        });
+                    } else {
+                        const countSpan = floatingCart.querySelector('.cart-count');
+                        if (countSpan) countSpan.textContent = data.count;
+                    }
+                }
+            })
+            .catch(error => console.log('Error al obtener carrito:', error));
+    }
+    addFloatingCart();
+    
+    // =====================================================
+    // TOAST NOTIFICATIONS
+    // =====================================================
+    window.showToast = function(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast-notification ${type}`;
+        toast.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check-circle' : (type === 'error' ? 'exclamation-circle' : 'info-circle')}"></i>
+            ${message}
+        `;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            right: 20px;
+            background: ${type === 'success' ? '#2ecc71' : (type === 'error' ? '#e74c3c' : '#f39c12')};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            z-index: 1001;
+            animation: slideInRight 0.3s ease;
+            font-size: 0.9rem;
+        `;
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'slideInRight 0.3s reverse';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    };
+    
+    // =====================================================
+    // HEADER STICKY MEJORADO
+    // =====================================================
+    const header = document.querySelector('header');
+    let lastScroll = 0;
+    
+    window.addEventListener('scroll', () => {
+        const currentScroll = window.pageYOffset;
+        
+        if (currentScroll > 100) {
+            header.style.background = '#2c3e50';
+            header.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
+            header.style.backdropFilter = 'blur(0px)';
+        } else {
+            header.style.background = '#2c3e50';
+            header.style.boxShadow = 'none';
+        }
+        
+        lastScroll = currentScroll;
+    });
+    
+    // =====================================================
+    // CONTADOR DE INVITADOS EN TIEMPO REAL
+    // =====================================================
+    const adultsSelect = document.getElementById('adults');
+    const childrenSelect = document.getElementById('children');
+    const guestDisplay = document.createElement('div');
+    
+    if (adultsSelect && childrenSelect) {
+        guestDisplay.className = 'guest-display';
+        guestDisplay.style.cssText = `
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: #666;
+        `;
+        adultsSelect.parentElement.appendChild(guestDisplay);
+        
+        function updateGuestDisplay() {
+            const adults = adultsSelect.value;
+            const children = childrenSelect.value;
+            guestDisplay.innerHTML = `🧑 ${adults} adulto${adults != 1 ? 's' : ''} ${children > 0 ? `+ 👶 ${children} niño${children != 1 ? 's' : ''}` : ''}`;
+        }
+        
+        adultsSelect.addEventListener('change', updateGuestDisplay);
+        childrenSelect.addEventListener('change', updateGuestDisplay);
+        updateGuestDisplay();
+    }
+    
+    // =====================================================
+    // FILTRO DE HABITACIONES EN TIEMPO REAL
+    // =====================================================
+    const roomsGrid = document.querySelector('.rooms-grid');
+    const allRooms = document.querySelectorAll('.room-card');
+    
+    if (roomsGrid && allRooms.length > 0) {
+        const filterContainer = document.createElement('div');
+        filterContainer.className = 'filter-container';
+        filterContainer.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        `;
+        
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = '🔍 Buscar habitación...';
+        searchInput.style.cssText = `
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 25px;
+            width: 250px;
+            font-size: 0.9rem;
+        `;
+        
+        const categoryFilter = document.createElement('select');
+        categoryFilter.style.cssText = `
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            background: white;
+        `;
+        categoryFilter.innerHTML = `
+            <option value="all">Todas las categorías</option>
+            <option value="Suites de Lujo">Suites de Lujo</option>
+            <option value="Habitaciones Premium">Habitaciones Premium</option>
+            <option value="Habitaciones Estándar">Habitaciones Estándar</option>
+        `;
+        
+        filterContainer.appendChild(searchInput);
+        filterContainer.appendChild(categoryFilter);
+        
+        const roomsSection = document.querySelector('#rooms');
+        if (roomsSection) {
+            const container = roomsSection.querySelector('.container');
+            container.insertBefore(filterContainer, roomsGrid);
+        }
+        
+        function filterRooms() {
+            const searchTerm = searchInput.value.toLowerCase();
+            const category = categoryFilter.value;
+            
+            allRooms.forEach(room => {
+                const title = room.querySelector('h3')?.textContent.toLowerCase() || '';
+                const description = room.querySelector('p')?.textContent.toLowerCase() || '';
+                const roomCategory = room.querySelector('.room-category')?.textContent || '';
+                
+                let show = true;
+                
+                if (searchTerm && !title.includes(searchTerm) && !description.includes(searchTerm)) {
+                    show = false;
+                }
+                
+                if (category !== 'all' && roomCategory !== category) {
+                    show = false;
+                }
+                
+                room.style.display = show ? 'block' : 'none';
+            });
+        }
+        
+        searchInput.addEventListener('input', filterRooms);
+        categoryFilter.addEventListener('change', filterRooms);
+    }
+    
+    // =====================================================
+    // MODO OSCURO (opcional)
+    // =====================================================
+    const darkModeToggle = document.createElement('div');
+    darkModeToggle.innerHTML = '🌙';
+    darkModeToggle.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        background: #2c3e50;
+        color: white;
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 1000;
+        transition: all 0.3s;
+        font-size: 1.2rem;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    `;
+    document.body.appendChild(darkModeToggle);
+    
+    const darkMode = localStorage.getItem('darkMode') === 'true';
+    if (darkMode) {
+        document.body.classList.add('dark-mode');
+        darkModeToggle.innerHTML = '☀️';
+        // Estilos para modo oscuro
+        const style = document.createElement('style');
+        style.textContent = `
+            body.dark-mode {
+                background: #1a1a2e;
+                color: #eee;
+            }
+            body.dark-mode .room-card,
+            body.dark-mode .amenity,
+            body.dark-mode .testimonial-card,
+            body.dark-mode .search-section {
+                background: #16213e;
+                color: #eee;
+            }
+            body.dark-mode .room-card p,
+            body.dark-mode .amenity p {
+                color: #ccc;
+            }
+            body.dark-mode .search-section h2,
+            body.dark-mode .rooms-section h2 {
+                color: #fff;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    darkModeToggle.addEventListener('click', () => {
+        document.body.classList.toggle('dark-mode');
+        const isDark = document.body.classList.contains('dark-mode');
+        localStorage.setItem('darkMode', isDark);
+        darkModeToggle.innerHTML = isDark ? '☀️' : '🌙';
+    });
+    
+    // =====================================================
+    // ANIMACIÓN AL HACER CLIC EN RESERVAR AHORA
+    // =====================================================
+    const reserveBtn = document.querySelector('.btn-hero');
+    if (reserveBtn) {
+        reserveBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const searchSection = document.querySelector('.search-section');
+            if (searchSection) {
+                searchSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                searchSection.style.transition = 'all 0.3s';
+                searchSection.style.boxShadow = '0 0 0 3px #e74c3c';
+                setTimeout(() => {
+                    searchSection.style.boxShadow = '';
+                }, 1000);
+            }
+        });
+    }
+});
+// Función para agregar al carrito con redirección automática
+function addToCart(roomId, checkIn, checkOut, adults, children) {
+    // Mostrar loading
+    showToast('⏳ Agregando al carrito...', 'info');
+    
+    const formData = new URLSearchParams();
+    formData.append('room_id', roomId);
+    formData.append('check_in', checkIn);
+    formData.append('check_out', checkOut);
+    formData.append('adults', adults);
+    formData.append('children', children);
+    
+    fetch('api/add_to_cart.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Mostrar mensaje de éxito
+            showToast(data.message, 'success');
+            
+            // Actualizar contador del carrito si existe
+            if (data.cart_count !== undefined) {
+                updateCartCounter(data.cart_count);
+            }
+            
+            // Redirigir al carrito después de 1 segundo
+            if (data.redirect) {
+                setTimeout(() => {
+                    window.location.href = data.redirect;
+                }, 1000);
+            }
+        } else {
+            showToast(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('Error de conexión', 'error');
+    });
+}
+
+// Función para actualizar el contador del carrito
+function updateCartCounter(count) {
+    const cartBadge = document.getElementById('cart-count');
+    if (cartBadge) {
+        if (count > 0) {
+            cartBadge.textContent = count;
+            cartBadge.style.display = 'inline-block';
+        } else {
+            cartBadge.style.display = 'none';
+        }
+    }
+}
+
+// Función para mostrar notificaciones toast
+function showToast(message, type = 'success') {
+    // Eliminar toast anterior si existe
+    const oldToast = document.querySelector('.toast-notification');
+    if (oldToast) oldToast.remove();
+    
+    const toast = document.createElement('div');
+    toast.className = `toast-notification ${type}`;
+    toast.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : (type === 'error' ? 'exclamation-circle' : 'info-circle')}"></i>
+        ${message}
+    `;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 100px;
+        right: 20px;
+        background: ${type === 'success' ? '#2ecc71' : (type === 'error' ? '#e74c3c' : '#3498db')};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        z-index: 1001;
+        animation: slideInRight 0.3s ease;
+        font-size: 0.9rem;
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.animation = 'slideInRight 0.3s reverse';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// Agregar estilos para la animación si no existen
+if (!document.querySelector('#toast-styles')) {
+    const style = document.createElement('style');
+    style.id = 'toast-styles';
+    style.textContent = `
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
